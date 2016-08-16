@@ -31,6 +31,8 @@ import (
 // and automatically sets a default consistency level on all operations
 // that do not have a consistency level set.
 type Session struct {
+	Callback QueryCallback
+
 	cons                Consistency
 	pageSize            int
 	prefetch            float64
@@ -292,6 +294,7 @@ func (s *Session) SetTrace(trace Tracer) {
 func (s *Session) Query(stmt string, values ...interface{}) *Query {
 	s.mu.RLock()
 	qry := queryPool.Get().(*Query)
+	qry.Callback = s.Callback
 	qry.stmt = stmt
 	qry.values = values
 	qry.cons = s.cons
@@ -323,7 +326,7 @@ func (s *Session) Bind(stmt string, b func(q *QueryInfo) ([]interface{}, error))
 	s.mu.RLock()
 	qry := &Query{stmt: stmt, binding: b, cons: s.cons,
 		session: s, pageSize: s.pageSize, trace: s.trace,
-		prefetch: s.prefetch, rt: s.cfg.RetryPolicy}
+		prefetch: s.prefetch, rt: s.cfg.RetryPolicy, Callback: s.Callback}
 	s.mu.RUnlock()
 	return qry
 }
@@ -644,6 +647,7 @@ func (s *Session) connect(host *HostInfo, errorHandler ConnErrorHandler) (*Conn,
 
 // Query represents a CQL statement that can be executed.
 type Query struct {
+	Callback              QueryCallback
 	stmt                  string
 	values                []interface{}
 	cons                  Consistency
@@ -1309,6 +1313,7 @@ func (n *nextIter) fetch() *Iter {
 }
 
 type Batch struct {
+	Callback              QueryCallback
 	Type                  BatchType
 	Entries               []BatchEntry
 	Cons                  Consistency
@@ -1330,7 +1335,7 @@ func NewBatch(typ BatchType) *Batch {
 func (s *Session) NewBatch(typ BatchType) *Batch {
 	s.mu.RLock()
 	batch := &Batch{Type: typ, rt: s.cfg.RetryPolicy, serialCons: s.cfg.SerialConsistency,
-		Cons: s.cons, defaultTimestamp: s.cfg.DefaultTimestamp}
+		Cons: s.cons, defaultTimestamp: s.cfg.DefaultTimestamp, Callback: s.Callback}
 	s.mu.RUnlock()
 	return batch
 }

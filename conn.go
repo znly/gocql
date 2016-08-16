@@ -761,6 +761,11 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 		consistency: qry.cons,
 	}
 
+	if qry.Callback != nil {
+		defer func(start time.Time) {
+			qry.Callback(qry.stmt, time.Now().Sub(start))
+		}(time.Now())
+	}
 	// frame checks that it is not 0
 	params.serialConsistency = qry.serialCons
 	params.defaultTimestamp = qry.defaultTimestamp
