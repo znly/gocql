@@ -1358,7 +1358,7 @@ func TestPrepare_MissingSchemaPrepare(t *testing.T) {
 
 	insertQry := &Query{stmt: "INSERT INTO invalidschemaprep (val) VALUES (?)", values: []interface{}{5}, cons: s.cons,
 		session: s, pageSize: s.pageSize, trace: s.trace,
-		prefetch: s.prefetch, rt: s.cfg.RetryPolicy}
+		prefetch: s.prefetch, rt: retrierFn(s.cfg.RetryPolicy)}
 
 	if err := conn.executeQuery(insertQry).err; err == nil {
 		t.Fatal("expected error, but got nil.")

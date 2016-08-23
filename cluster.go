@@ -54,6 +54,7 @@ type ClusterConfig struct {
 	Compressor         Compressor         // compression algorithm (default: nil)
 	Authenticator      Authenticator      // authenticator (default: nil)
 	RetryPolicy        RetryPolicy        // Default retry policy to use for queries (default: 0)
+	RetrierFn          RetrierFunc        // Default Retrier function
 	ConvictionPolicy   ConvictionPolicy   // Decide whether to mark host as down based on the error and host info (default: SimpleConvictionPolicy)
 	ReconnectionPolicy ReconnectionPolicy // Default reconnection policy to use for reconnecting before trying to mark host as down (default: see below)
 	SocketKeepalive    time.Duration      // The keepalive period to use, enabled if > 0 (default: 0)
@@ -129,7 +130,7 @@ type ClusterConfig struct {
 	// created from this session.
 	ConnectObserver ConnectObserver
 
-  // FrameHeaderObserver will set the provided frame header observer on all frames' headers created from this session.
+	// FrameHeaderObserver will set the provided frame header observer on all frames' headers created from this session.
 	// Use it to collect metrics / stats from frames by providing an implementation of FrameHeaderObserver.
 	FrameHeaderObserver FrameHeaderObserver
 

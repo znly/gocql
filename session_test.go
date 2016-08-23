@@ -140,7 +140,7 @@ func TestQueryBasicAPI(t *testing.T) {
 	}
 
 	rt := &SimpleRetryPolicy{NumRetries: 3}
-	if qry.RetryPolicy(rt); qry.rt != rt {
+	if qry.RetryPolicy(rt); qry.retrier().(*retryPolicyRetrier).rp != rt {
 		t.Fatalf("expected Query.RetryPolicy to be '%v', got '%v'", rt, qry.rt)
 	}
 
@@ -186,7 +186,7 @@ func TestBatchBasicAPI(t *testing.T) {
 	b := s.NewBatch(UnloggedBatch)
 	if b.Type != UnloggedBatch {
 		t.Fatalf("expceted batch.Type to be '%v', got '%v'", UnloggedBatch, b.Type)
-	} else if b.rt != cfg.RetryPolicy {
+	} else if b.retrier().(*retryPolicyRetrier).rp != cfg.RetryPolicy {
 		t.Fatalf("expceted batch.RetryPolicy to be '%v', got '%v'", cfg.RetryPolicy, b.rt)
 	}
 
@@ -240,7 +240,7 @@ func TestBatchBasicAPI(t *testing.T) {
 	r := &SimpleRetryPolicy{NumRetries: 4}
 
 	b.RetryPolicy(r)
-	if b.rt != r {
+	if b.retrier().(*retryPolicyRetrier).rp != r {
 		t.Fatalf("expected batch.RetryPolicy to be '%v', got '%v'", r, b.rt)
 	}
 

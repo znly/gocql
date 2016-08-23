@@ -671,7 +671,7 @@ type Query struct {
 	trace                 Tracer
 	observer              QueryObserver
 	session               *Session
-	rt                    RetryPolicy
+	rt                    RetrierFunc
 	binding               func(q *QueryInfo) ([]interface{}, error)
 	attempts              int
 	totalLatency          int64
@@ -694,7 +694,11 @@ func (q *Query) defaultsFromSession() {
 	q.trace = s.trace
 	q.observer = s.queryObserver
 	q.prefetch = s.prefetch
-	q.rt = s.cfg.RetryPolicy
+	if s.cfg.RetrierFn != nil {
+		q.rt = s.cfg.RetrierFn
+	} else {
+		q.rt = retrierFn(s.cfg.RetryPolicy)
+	}
 	q.serialCons = s.cfg.SerialConsistency
 	q.defaultTimestamp = s.cfg.DefaultTimestamp
 	q.idempotent = s.cfg.DefaultIdempotence
@@ -825,8 +829,11 @@ func (q *Query) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 	}
 }
 
-func (q *Query) retryPolicy() RetryPolicy {
-	return q.rt
+func (q *Query) retrier() Retrier {
+	if q.rt == nil {
+		return nil
+	}
+	return q.rt(q)
 }
 
 // Keyspace returns the keyspace the query will be executed against.
@@ -935,7 +942,7 @@ func (q *Query) Prefetch(p float64) *Query {
 
 // RetryPolicy sets the policy to use when retrying the query.
 func (q *Query) RetryPolicy(r RetryPolicy) *Query {
-	q.rt = r
+	q.rt = retrierFn(r)
 	return q
 }
 
@@ -1385,7 +1392,7 @@ type Batch struct {
 	Type                  BatchType
 	Entries               []BatchEntry
 	Cons                  Consistency
-	rt                    RetryPolicy
+	rt                    RetrierFunc
 	observer              BatchObserver
 	attempts              int
 	totalLatency          int64
@@ -1408,13 +1415,19 @@ func (s *Session) NewBatch(typ BatchType) *Batch {
 	s.mu.RLock()
 	batch := &Batch{
 		Type:             typ,
-		rt:               s.cfg.RetryPolicy,
 		serialCons:       s.cfg.SerialConsistency,
 		observer:         s.batchObserver,
 		Cons:             s.cons,
 		defaultTimestamp: s.cfg.DefaultTimestamp,
 		keyspace:         s.cfg.Keyspace,
 	}
+
+	if s.cfg.RetrierFn != nil {
+		batch.rt = s.cfg.RetrierFn
+	} else {
+		batch.rt = retrierFn(s.cfg.RetryPolicy)
+	}
+
 	s.mu.RUnlock()
 	return batch
 }
@@ -1467,13 +1480,16 @@ func (b *Batch) Bind(stmt string, bind func(q *QueryInfo) ([]interface{}, error)
 	b.Entries = append(b.Entries, BatchEntry{Stmt: stmt, binding: bind})
 }
 
-func (b *Batch) retryPolicy() RetryPolicy {
-	return b.rt
+func (b *Batch) retrier() Retrier {
+	if b.rt == nil {
+		return nil
+	}
+	return b.rt(b)
 }
 
 // RetryPolicy sets the retry policy to use when executing the batch operation
 func (b *Batch) RetryPolicy(r RetryPolicy) *Batch {
-	b.rt = r
+	b.rt = retrierFn(r)
 	return b
 }
 

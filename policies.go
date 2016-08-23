@@ -117,7 +117,7 @@ func (c *cowHostList) remove(ip net.IP) bool {
 		return false
 	}
 
-	newL = newL[:size-1 : size-1]
+	newL = newL[: size-1 : size-1]
 	c.list.Store(&newL)
 	c.mu.Unlock()
 
@@ -151,6 +151,32 @@ const (
 type RetryPolicy interface {
 	Attempt(RetryableQuery) bool
 	GetRetryType(error) RetryType
+}
+
+type Retrier interface {
+	Retry(RetryableQuery, error) RetryType
+}
+
+type retryPolicyRetrier struct {
+	rp RetryPolicy
+}
+
+func (rw *retryPolicyRetrier) Retry(q RetryableQuery, err error) RetryType {
+	retry := rw.rp.Attempt(q) // discard the result
+	if !retry {
+		return Rethrow
+	}
+	return rw.rp.GetRetryType(err)
+}
+
+// RetrierFunc is a func that builds and returns a Retrier.
+type RetrierFunc func(RetryableQuery) Retrier
+
+func retrierFn(rt RetryPolicy) RetrierFunc {
+	if rt == nil {
+		return nil
+	}
+	return func(_ RetryableQuery) Retrier { return &retryPolicyRetrier{rt} }
 }
 
 // SimpleRetryPolicy has simple logic for attempting a query a fixed number of times.
