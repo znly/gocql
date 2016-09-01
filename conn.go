@@ -537,10 +537,6 @@ func (c *Conn) releaseStream(stream int) {
 	delete(c.calls, stream)
 	c.mu.Unlock()
 
-	if call.timer != nil {
-		call.timer.Stop()
-	}
-
 	streamPool.Put(call)
 	c.streams.Clear(stream)
 }
@@ -567,8 +563,6 @@ type callReq struct {
 	framer   *framer
 	timeout  chan struct{} // indicates to recv() that a call has timedout
 	streamID int           // current stream in use
-
-	timer *time.Timer
 }
 
 func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*framer, error) {
@@ -615,22 +609,12 @@ func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*frame
 		return nil, err
 	}
 
-	var timeoutCh <-chan time.Time
+	var cancel context.CancelFunc
 	if c.timeout > 0 {
-		if call.timer == nil {
-			call.timer = time.NewTimer(0)
-			<-call.timer.C
-		} else {
-			if !call.timer.Stop() {
-				select {
-				case <-call.timer.C:
-				default:
-				}
-			}
+		if ctx == nil {
+			ctx, cancel = context.WithTimeout(context.Background(), c.timeout)
+			defer cancel()
 		}
-
-		call.timer.Reset(c.timeout)
-		timeoutCh = call.timer.C
 	}
 
 	var ctxDone <-chan struct{}
@@ -651,12 +635,12 @@ func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*frame
 			}
 			return nil, err
 		}
-	case <-timeoutCh:
-		close(call.timeout)
-		c.handleTimeout()
-		return nil, ErrTimeoutNoResponse
 	case <-ctxDone:
 		close(call.timeout)
+		if ctx.Err() == context.DeadlineExceeded {
+			c.handleTimeout()
+			return nil, ErrTimeoutNoResponse
+		}
 		return nil, ctx.Err()
 	case <-c.quit:
 		return nil, ErrConnectionClosed
