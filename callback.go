@@ -1,5 +1,9 @@
 package gocql
 
-import "time"
+import (
+	"time"
 
-type QueryCallback func(string, time.Duration)
+	"golang.org/x/net/context"
+)
+
+type QueryCallback func(context.Context, string, time.Duration)
