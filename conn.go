@@ -134,10 +134,11 @@ type Conn struct {
 	mu      sync.RWMutex
 	calls   map[int]*callReq
 
-	errorHandler    ConnErrorHandler
-	compressor      Compressor
-	auth            Authenticator
-	addr            string
+	errorHandler ConnErrorHandler
+	compressor   Compressor
+	auth         Authenticator
+	addr         string
+
 	version         uint8
 	currentKeyspace string
 
@@ -761,7 +762,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 
 	if qry.Callback != nil {
 		defer func(start time.Time) {
-			qry.Callback(qry.context, qry.stmt, time.Now().Sub(start))
+			qry.Callback(qry.context, qry.stmt, c.addr, time.Now().Sub(start))
 		}(time.Now())
 	}
 	// frame checks that it is not 0

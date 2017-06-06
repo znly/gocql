@@ -6,4 +6,4 @@ import (
 	"golang.org/x/net/context"
 )
 
-type QueryCallback func(context.Context, string, time.Duration)
+type QueryCallback func(ctx context.Context, statement string, addr string, duration time.Duration)

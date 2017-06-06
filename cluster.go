@@ -123,6 +123,10 @@ type ClusterConfig struct {
 	// Use it to collect metrics / stats from batche queries by providing an implementation of BatchObserver.
 	BatchObserver BatchObserver
 
+	// TODO(gwik): remove in favor of observers.
+	Callback        QueryCallback
+	ConnectCallback ConnectCallback
+
 	// internal config for testing
 	disableControlConn bool
 }
