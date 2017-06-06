@@ -115,6 +115,9 @@ type ClusterConfig struct {
 	// See https://issues.apache.org/jira/browse/CASSANDRA-10786
 	DisableSkipMetadata bool
 
+	Callback        QueryCallback
+	ConnectCallback ConnectCallback
+
 	// internal config for testing
 	disableControlConn bool
 }

@@ -21,6 +21,8 @@ import (
 	"github.com/gocql/gocql/internal/lru"
 )
 
+type ConnectCallback func(host *HostInfo) func(error)
+
 // Session is the interface used by users to interact with the database.
 //
 // It's safe for concurrent use by multiple goroutines and a typical usage
@@ -31,7 +33,8 @@ import (
 // and automatically sets a default consistency level on all operations
 // that do not have a consistency level set.
 type Session struct {
-	Callback QueryCallback
+	callback        QueryCallback
+	connectCallback ConnectCallback
 
 	cons                Consistency
 	pageSize            int
@@ -106,12 +109,14 @@ func NewSession(cfg ClusterConfig) (*Session, error) {
 	}
 
 	s := &Session{
-		cons:     cfg.Consistency,
-		prefetch: 0.25,
-		cfg:      cfg,
-		pageSize: cfg.PageSize,
-		stmtsLRU: &preparedLRU{lru: lru.New(cfg.MaxPreparedStmts)},
-		quit:     make(chan struct{}),
+		cons:            cfg.Consistency,
+		prefetch:        0.25,
+		cfg:             cfg,
+		pageSize:        cfg.PageSize,
+		stmtsLRU:        &preparedLRU{lru: lru.New(cfg.MaxPreparedStmts)},
+		quit:            make(chan struct{}),
+		callback:        cfg.Callback,
+		connectCallback: cfg.ConnectCallback,
 	}
 
 	s.nodeEvents = newEventDebouncer("NodeEvents", s.handleNodeEvent)
@@ -294,7 +299,7 @@ func (s *Session) SetTrace(trace Tracer) {
 func (s *Session) Query(stmt string, values ...interface{}) *Query {
 	s.mu.RLock()
 	qry := queryPool.Get().(*Query)
-	qry.Callback = s.Callback
+	qry.Callback = s.callback
 	qry.stmt = stmt
 	qry.values = values
 	qry.cons = s.cons
@@ -326,7 +331,7 @@ func (s *Session) Bind(stmt string, b func(q *QueryInfo) ([]interface{}, error))
 	s.mu.RLock()
 	qry := &Query{stmt: stmt, binding: b, cons: s.cons,
 		session: s, pageSize: s.pageSize, trace: s.trace,
-		prefetch: s.prefetch, rt: s.cfg.RetryPolicy, Callback: s.Callback}
+		prefetch: s.prefetch, rt: s.cfg.RetryPolicy, Callback: s.callback}
 	s.mu.RUnlock()
 	return qry
 }
@@ -642,12 +647,20 @@ func (s *Session) MapExecuteBatchCAS(batch *Batch, dest map[string]interface{}) 
 }
 
 func (s *Session) connect(host *HostInfo, errorHandler ConnErrorHandler) (*Conn, error) {
+	if s.connectCallback != nil {
+		done := s.connectCallback(host)
+		conn, err := Connect(host, s.connCfg, errorHandler, s)
+		done(err)
+		return conn, err
+	}
+
 	return Connect(host, s.connCfg, errorHandler, s)
 }
 
 // Query represents a CQL statement that can be executed.
 type Query struct {
-	Callback              QueryCallback
+	Callback QueryCallback
+
 	stmt                  string
 	values                []interface{}
 	cons                  Consistency
@@ -1335,7 +1348,7 @@ func NewBatch(typ BatchType) *Batch {
 func (s *Session) NewBatch(typ BatchType) *Batch {
 	s.mu.RLock()
 	batch := &Batch{Type: typ, rt: s.cfg.RetryPolicy, serialCons: s.cfg.SerialConsistency,
-		Cons: s.cons, defaultTimestamp: s.cfg.DefaultTimestamp, Callback: s.Callback}
+		Cons: s.cons, defaultTimestamp: s.cfg.DefaultTimestamp, Callback: s.callback}
 	s.mu.RUnlock()
 	return batch
 }
