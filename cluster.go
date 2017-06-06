@@ -128,6 +128,10 @@ type ClusterConfig struct {
 	// Default idempotence for queries
 	DefaultIdempotence bool
 
+	// ConnectObserver will set the provided connect observer on all queries
+	// created from this session.
+	ConnectObserver ConnectObserver
+
 	// internal config for testing
 	disableControlConn bool
 }
