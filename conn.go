@@ -756,14 +756,14 @@ func marshalQueryValue(typ TypeInfo, value interface{}, dst *queryValues) error 
 	return nil
 }
 
-func (c *Conn) executeQuery(qry *Query) *Iter {
+func (c *Conn) executeQuery(qry *Query) (it *Iter) {
 	params := queryParams{
 		consistency: qry.cons,
 	}
 
 	if qry.Callback != nil {
 		defer func(start time.Time) {
-			qry.Callback(qry.context, qry.stmt, c.addr, time.Now().Sub(start))
+			qry.Callback(qry.context, qry.stmt, c.addr, time.Now().Sub(start), it.err)
 		}(time.Now())
 	}
 	// frame checks that it is not 0

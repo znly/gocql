@@ -3,7 +3,7 @@ package gocql
 import (
 	"time"
 
-	"golang.org/x/net/context"
+	"context"
 )
 
-type QueryCallback func(ctx context.Context, statement string, addr string, duration time.Duration)
+type QueryCallback func(ctx context.Context, statement string, addr string, duration time.Duration, err error)
