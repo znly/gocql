@@ -741,14 +741,14 @@ func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer)
 	return flight.preparedStatment, flight.err
 }
 
-func (c *Conn) executeQuery(qry *Query) *Iter {
+func (c *Conn) executeQuery(qry *Query) (it *Iter) {
 	params := queryParams{
 		consistency: qry.cons,
 	}
 
 	if qry.Callback != nil {
 		defer func(start time.Time) {
-			qry.Callback(qry.context, qry.stmt, c.host, time.Now().Sub(start))
+			qry.Callback(qry.context, qry.stmt, c.host, time.Now().Sub(start), it.err)
 		}(time.Now())
 	}
 	// frame checks that it is not 0
