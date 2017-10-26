@@ -948,7 +948,7 @@ func (c *Conn) UseKeyspace(keyspace string) error {
 	return nil
 }
 
-func (c *Conn) executeBatch(batch *Batch) *Iter {
+func (c *Conn) executeBatch(batch *Batch) (it *Iter) {
 	if c.version == protoVersion1 {
 		return &Iter{err: ErrUnsupported}
 	}
@@ -968,6 +968,13 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 	for i := 0; i < n; i++ {
 		entry := &batch.Entries[i]
 		b := &req.statements[i]
+
+		if batch.Callback != nil {
+			defer func(start time.Time) {
+				batch.Callback(batch.context, entry.Stmt, c.host, time.Now().Sub(start), it.err)
+			}(time.Now())
+		}
+
 		if len(entry.Args) > 0 || entry.binding != nil {
 			info, err := c.prepareStatement(batch.context, entry.Stmt, nil)
 			if err != nil {
