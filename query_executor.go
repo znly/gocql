@@ -1,6 +1,7 @@
 package gocql
 
 import (
+	"context"
 	"time"
 )
 
@@ -28,6 +29,15 @@ func (q *queryExecutor) attemptQuery(qry ExecutableQuery, conn *Conn) *Iter {
 	return iter
 }
 
+func filterMarkError(err error) error {
+	switch err {
+	case context.Canceled, context.DeadlineExceeded:
+		return nil
+	default:
+		return err
+	}
+}
+
 func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 	rt := qry.retrier()
 	hostIter := q.policy.Pick(qry)
@@ -52,7 +62,7 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 
 		iter = q.attemptQuery(qry, conn)
 		// Update host
-		hostResponse.Mark(iter.err)
+		hostResponse.Mark(filterMarkError(iter.err))
 		if iter.err == nil {
 			iter.host = host
 			return iter, nil
@@ -77,7 +87,7 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 			}
 
 			iter = q.attemptQuery(qry, conn)
-			hostResponse.Mark(iter.err)
+			hostResponse.Mark(filterMarkError(iter.err))
 			if iter.err == nil {
 				iter.host = host
 				return iter, nil
