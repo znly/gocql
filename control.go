@@ -307,7 +307,7 @@ func (c *controlConn) registerEvents(conn *Conn) error {
 	framer, err := conn.exec(context.Background(),
 		&writeRegisterFrame{
 			events: events,
-		}, nil)
+		}, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -401,7 +401,7 @@ func (c *controlConn) writeFrame(w frameWriter) (frame, error) {
 		return nil, errNoControl
 	}
 
-	framer, err := ch.conn.exec(context.Background(), w, nil)
+	framer, err := ch.conn.exec(context.Background(), w, 0, nil)
 	if err != nil {
 		return nil, err
 	}

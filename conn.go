@@ -307,7 +307,7 @@ func (c *Conn) startup(ctx context.Context, frameTicker chan struct{}) error {
 		return ctx.Err()
 	}
 
-	framer, err := c.exec(ctx, &writeStartupFrame{opts: m}, nil)
+	framer, err := c.exec(ctx, &writeStartupFrame{opts: m}, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -348,7 +348,7 @@ func (c *Conn) authenticateHandshake(ctx context.Context, authFrame *authenticat
 			return ctx.Err()
 		}
 
-		framer, err := c.exec(ctx, req, nil)
+		framer, err := c.exec(ctx, req, 0, nil)
 		if err != nil {
 			return err
 		}
@@ -615,7 +615,7 @@ func (c *callReq) resetTimeout(timeout time.Duration) <-chan time.Time {
 	return timeoutCh
 }
 
-func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*framer, error) {
+func (c *Conn) exec(ctx context.Context, req frameWriter, timeout time.Duration, tracer Tracer) (*framer, error) {
 	// TODO: move tracer onto conn
 	stream, ok := c.streams.GetStream()
 	if !ok {
@@ -646,7 +646,11 @@ func (c *Conn) exec(ctx context.Context, req frameWriter, tracer Tracer) (*frame
 		framer.trace()
 	}
 
-	timeoutCh := call.resetTimeout(c.timeout)
+	if timeout == 0 {
+		timeout = c.timeout
+	}
+
+	timeoutCh := call.resetTimeout(timeout)
 	if err := c.sendFrame(ctx, call, timeoutCh); err != nil {
 		return nil, err
 	}
@@ -738,7 +742,7 @@ type inflightPrepare struct {
 	preparedStatment *preparedStatment
 }
 
-func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer) (*preparedStatment, error) {
+func (c *Conn) prepareStatement(ctx context.Context, stmt string, timeout time.Duration, tracer Tracer) (*preparedStatment, error) {
 	stmtCacheKey := c.session.stmtsLRU.keyFor(c.addr, c.currentKeyspace, stmt)
 	flight, ok := c.session.stmtsLRU.execIfMissing(stmtCacheKey, func(lru *lru.Cache) *inflightPrepare {
 		flight := new(inflightPrepare)
@@ -756,7 +760,7 @@ func (c *Conn) prepareStatement(ctx context.Context, stmt string, tracer Tracer)
 		statement: stmt,
 	}
 
-	framer, err := c.exec(ctx, prep, tracer)
+	framer, err := c.exec(ctx, prep, timeout, tracer)
 	if err != nil {
 		flight.err = err
 		flight.wg.Done()
@@ -850,7 +854,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 	if qry.shouldPrepare() {
 		// Prepare all DML queries. Other queries can not be prepared.
 		var err error
-		info, err = c.prepareStatement(qry.context, qry.stmt, qry.trace)
+		info, err = c.prepareStatement(qry.context, qry.stmt, qry.timeout, qry.trace)
 		if err != nil {
 			return &Iter{err: err}
 		}
@@ -899,7 +903,7 @@ func (c *Conn) executeQuery(qry *Query) *Iter {
 		}
 	}
 
-	framer, err := c.exec(qry.context, frame, qry.trace)
+	framer, err := c.exec(qry.context, frame, qry.timeout, qry.trace)
 	if err != nil {
 		return &Iter{err: err}
 	}
@@ -1000,7 +1004,7 @@ func (c *Conn) UseKeyspace(keyspace string) error {
 	q := &writeQueryFrame{statement: `USE "` + keyspace + `"`}
 	q.params.consistency = Any
 
-	framer, err := c.exec(context.Background(), q, nil)
+	framer, err := c.exec(context.Background(), q, 0, nil)
 	if err != nil {
 		return err
 	}
@@ -1045,7 +1049,7 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 		b := &req.statements[i]
 
 		if len(entry.Args) > 0 || entry.binding != nil {
-			info, err := c.prepareStatement(batch.context, entry.Stmt, nil)
+			info, err := c.prepareStatement(batch.context, entry.Stmt, batch.timeout, nil)
 			if err != nil {
 				return &Iter{err: err}
 			}
@@ -1088,7 +1092,7 @@ func (c *Conn) executeBatch(batch *Batch) *Iter {
 	}
 
 	// TODO: should batch support tracing?
-	framer, err := c.exec(batch.context, req, nil)
+	framer, err := c.exec(batch.context, req, batch.timeout, nil)
 	if err != nil {
 		return &Iter{err: err}
 	}

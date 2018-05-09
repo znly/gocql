@@ -32,6 +32,10 @@ func (q *queryExecutor) executeQuery(qry ExecutableQuery) (*Iter, error) {
 	rt := qry.retryPolicy()
 	hostIter := q.policy.Pick(qry)
 
+	if rpi, ok := rt.(RetryPolicyIniter); ok {
+		rpi.InitializeQuery(qry)
+	}
+
 	var iter *Iter
 	for hostResponse := hostIter(); hostResponse != nil; hostResponse = hostIter() {
 		host := hostResponse.Info()

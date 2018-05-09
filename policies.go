@@ -130,6 +130,7 @@ type RetryableQuery interface {
 	Attempts() int
 	SetConsistency(c Consistency)
 	GetConsistency() Consistency
+	SetTimeout(time.Duration)
 }
 
 type RetryType uint16
@@ -151,6 +152,13 @@ const (
 type RetryPolicy interface {
 	Attempt(RetryableQuery) bool
 	GetRetryType(error) RetryType
+}
+
+// RetryPolicyIniter is an optional interface that may be implemented by a retry
+// policy.
+type RetryPolicyIniter interface {
+	// InitializeQuery is called before the first attempt.
+	InitializeQuery(RetryableQuery)
 }
 
 // SimpleRetryPolicy has simple logic for attempting a query a fixed number of times.

@@ -480,7 +480,7 @@ func (s *Session) routingKeyInfo(ctx context.Context, stmt string) (*routingKeyI
 	}
 
 	// get the query info for the statement
-	info, inflight.err = conn.prepareStatement(ctx, stmt, nil)
+	info, inflight.err = conn.prepareStatement(ctx, stmt, 0, nil)
 	if inflight.err != nil {
 		// don't cache this error
 		s.routingKeyInfoCache.Remove(stmt)
@@ -678,6 +678,7 @@ type Query struct {
 	defaultTimestampValue int64
 	disableSkipMetadata   bool
 	context               context.Context
+	timeout               time.Duration
 	idempotent            bool
 
 	disableAutoPage bool
@@ -695,7 +696,7 @@ func (q *Query) defaultsFromSession() {
 	q.rt = s.cfg.RetryPolicy
 	q.serialCons = s.cfg.SerialConsistency
 	q.defaultTimestamp = s.cfg.DefaultTimestamp
-  q.idempotent = s.cfg.DefaultIdempotence
+	q.idempotent = s.cfg.DefaultIdempotence
 	s.mu.RUnlock()
 }
 
@@ -934,6 +935,11 @@ func (q *Query) Prefetch(p float64) *Query {
 func (q *Query) RetryPolicy(r RetryPolicy) *Query {
 	q.rt = r
 	return q
+}
+
+// SetTimeout implements RetryableQuery.
+func (q *Query) SetTimeout(timeout time.Duration) {
+	q.timeout = timeout
 }
 
 func (q *Query) IsIdempotent() bool {
@@ -1392,6 +1398,7 @@ type Batch struct {
 	defaultTimestampValue int64
 	context               context.Context
 	keyspace              string
+	timeout               time.Duration
 }
 
 // NewBatch creates a new batch operation without defaults from the cluster
@@ -1550,6 +1557,11 @@ func (b *Batch) attempt(keyspace string, end, start time.Time, iter *Iter, conn 
 func (b *Batch) GetRoutingKey() ([]byte, error) {
 	// TODO: use the first statement in the batch as the routing key?
 	return nil, nil
+}
+
+// SetTimeout implements the RetryableQuery interface.
+func (b *Batch) SetTimeout(timeout time.Duration) {
+	b.timeout = timeout
 }
 
 type BatchType byte
