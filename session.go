@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -681,6 +682,19 @@ func (s *Session) executeBatch(batch *Batch) *Iter {
 	}
 
 	return iter
+}
+
+// AsString
+func (q Query) AsString() string {
+	stmt := q.stmt
+	for _, v := range q.values {
+		if v, ok := v.(string); !ok {
+			panic("unreachable")
+		} else {
+			stmt = strings.Replace(stmt, "?", "'"+v+"'", 1)
+		}
+	}
+	return stmt
 }
 
 // ExecuteBatch executes a batch operation and returns nil if successful
@@ -2097,3 +2111,91 @@ func NewErrProtocol(format string, args ...interface{}) error {
 // BatchSizeMaximum is the maximum number of statements a batch operation can have.
 // This limit is set by cassandra and could change in the future.
 const BatchSizeMaximum = 65535
+
+// QueryShardedPerCore takes a query statement of *exactly* the form
+// `SELECT * FROM t WHERE pkey IN (??)` and returns N Query objects, where N is,
+// in the worst case, the number of CPU cores in the token ring.
+// Each of these queries can then safely be executed in parallel and will
+// benefit from both the host- and CPU-level topology awareness of the
+// underlying CQL client.
+//
+// Note the presence of a special placeholder '(??)': this method will panic if
+// it is not present.
+// Don't forget to loop over the returned slice of queries once you're done in
+// order to Release() each one of them.
+func (s *Session) QueryShardedPerCore(stmt string, pkeys ...string) []*Query {
+	const _placeholder = "(??)"
+	if !strings.Contains(stmt, _placeholder) {
+		panic(fmt.Sprintf("stmt must contain a special placeholder '%s'", _placeholder))
+	}
+
+	hosts := s.ring.hostList
+	if len(hosts) <= 0 {
+		// For now, we'll just go on and assume that if we the underlying CQL
+		// client cannot detect even one host in the cluster, we are doomed
+		// anyhow.
+		panic("unreachable")
+	}
+	partitioner := hosts[0].partitioner
+
+	// We must compute a new TokenRing for every query, as the topology of the
+	// ring might have changed since our last query.
+	// This is obviously eventually-consistent: the topology might change
+	// between now and the moment we actually run the queries. This is not an
+	// issue, though, as it will just result in a performance penalty due to the
+	// brokers reshuffling the queries that ended up in the wrong place.
+	tr, err := newTokenRing(partitioner, hosts)
+	if err != nil {
+		// The only way this can happen is if the partitioner retrieved above
+		// is not compatible with the underlying CQL client; which should be
+		// impossible since we just retrieved it from said client.
+		panic("unreachable")
+	}
+
+	// This still preallocates based on a number of hosts rather than a number
+	// of cores; whatever, it's good enough.
+	keysPerHost := make(map[string][]interface{}, len(hosts))
+	keysPerHostLen := len(pkeys) / len(hosts)
+	for _, pkey := range pkeys {
+		// TODO(cmc): is there a more direct way to do all of this? have a look
+		// at the official query path of the SDK.
+		token := tr.partitioner.Hash([]byte(pkey))
+		host, _ := tr.GetHostForToken(token)
+
+		hostConnPool, ok := s.pool.getPool(host)
+		if !ok {
+			panic("wat do") // TODO(cmc)
+		}
+		var shard int
+		if hcp, ok := hostConnPool.connPicker.(*scyllaConnPicker); ok {
+			shard = hcp.shardOf(token.(murmur3Token))
+		}
+
+		hostID := host.HostID() + "-" + strconv.Itoa(shard)
+
+		var keys []interface{}
+		if keys, ok = keysPerHost[hostID]; !ok {
+			keys = make([]interface{}, 0, keysPerHostLen)
+			keysPerHost[hostID] = keys
+		}
+
+		keys = append(keys, pkey)
+		keysPerHost[hostID] = keys
+	}
+
+	// Generate the per-host bulk queries.
+	queries := make([]*Query, 0, len(hosts))
+	for _, keys := range keysPerHost {
+		query := strings.Replace(
+			stmt,
+			_placeholder,
+			"("+strings.Repeat("?,", len(keys))+")",
+			-1,
+		)
+		query = strings.Replace(query, "?,)", "?)", -1)
+
+		queries = append(queries, s.Query(query, keys...))
+	}
+
+	return queries
+}

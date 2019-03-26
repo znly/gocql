@@ -180,6 +180,8 @@ func (p *scyllaConnPicker) Pick(t token) *Conn {
 	conns := p.connsPerShard[idx]
 	if len(conns) > 0 {
 		conn = conns[0]
+	} else {
+		fmt.Println("RANDOM CONN!", t.String())
 	}
 	p.muConnsPerShard.RUnlock()
 	return conn
