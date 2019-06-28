@@ -55,6 +55,7 @@ func TestHostPolicy_RoundRobin(t *testing.T) {
 // round-robin host selection policy fallback.
 func TestHostPolicy_TokenAware(t *testing.T) {
 	policy := TokenAwareHostPolicy(RoundRobinHostPolicy())
+	policyInternal := policy.(*tokenAwareHostPolicy)
 
 	query := &Query{}
 
@@ -89,7 +90,29 @@ func TestHostPolicy_TokenAware(t *testing.T) {
 		t.Errorf("Expected peer 1 but was %s", actual.Info().ConnectAddress())
 	}
 
+	if actual := policy.Pick(query)(); !actual.Info().ConnectAddress().Equal(hosts[2].ConnectAddress()) {
+		t.Errorf("Expected peer 2 but was %s", actual.Info().ConnectAddress())
+	}
+
+	if actual := policy.Pick(query)(); !actual.Info().ConnectAddress().Equal(hosts[3].ConnectAddress()) {
+		t.Errorf("Expected peer 3 but was %s", actual.Info().ConnectAddress())
+	}
+
 	policy.SetPartitioner("OrderedPartitioner")
+
+	// We need to simulate updateKeyspaceMetadata for replicas() to work.
+	// This corresponds to what simpleStrategy with rf=2 would generate.
+	newMeta := &keyspaceMeta{
+		replicas: map[string]map[token][]*HostInfo{
+			"": {
+				orderedToken("00"): {hosts[0], hosts[1]},
+				orderedToken("25"): {hosts[1], hosts[2]},
+				orderedToken("50"): {hosts[2], hosts[3]},
+				orderedToken("75"): {hosts[3], hosts[0]},
+			},
+		},
+	}
+	policyInternal.keyspaces.Store(newMeta)
 
 	// now the token ring is configured
 	query.RoutingKey([]byte("20"))
@@ -97,15 +120,19 @@ func TestHostPolicy_TokenAware(t *testing.T) {
 	if actual := iter(); !actual.Info().ConnectAddress().Equal(hosts[1].ConnectAddress()) {
 		t.Errorf("Expected peer 1 but was %s", actual.Info().ConnectAddress())
 	}
-	// rest are round robin
 	if actual := iter(); !actual.Info().ConnectAddress().Equal(hosts[2].ConnectAddress()) {
 		t.Errorf("Expected peer 2 but was %s", actual.Info().ConnectAddress())
+	}
+	// rest are round robin
+	if actual := iter(); !actual.Info().ConnectAddress().Equal(hosts[0].ConnectAddress()) {
+		t.Errorf("Expected peer 0 but was %s", actual.Info().ConnectAddress())
 	}
 	if actual := iter(); !actual.Info().ConnectAddress().Equal(hosts[3].ConnectAddress()) {
 		t.Errorf("Expected peer 3 but was %s", actual.Info().ConnectAddress())
 	}
-	if actual := iter(); !actual.Info().ConnectAddress().Equal(hosts[0].ConnectAddress()) {
-		t.Errorf("Expected peer 0 but was %s", actual.Info().ConnectAddress())
+	// and end of hosts
+	if actual := iter(); actual != nil {
+		t.Errorf("Expected no more hosts but was %s", actual.Info().ConnectAddress())
 	}
 }
 
