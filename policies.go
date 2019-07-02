@@ -583,12 +583,12 @@ func (t *tokenAwareHostPolicy) Pick(qry ExecutableQuery) NextHost {
 		return t.fallback.Pick(qry)
 	}
 
-	primaryEndpoint, token := tr.GetHostForPartitionKey(routingKey)
-	if primaryEndpoint == nil || token == nil {
+	primaryEndpoint, token, endToken := tr.GetHostForPartitionKey(routingKey)
+	if primaryEndpoint == nil || endToken == nil {
 		return t.fallback.Pick(qry)
 	}
 
-	replicas, ok := t.getReplicas(qry.Keyspace(), token)
+	replicas, ok := t.getReplicas(qry.Keyspace(), endToken)
 	if !ok {
 		replicas = []*HostInfo{primaryEndpoint}
 	} else if t.shuffleReplicas {

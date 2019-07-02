@@ -356,7 +356,7 @@ func (s *Session) findAvailableHostForPkey(
 	keyspace string,
 	pkey []byte,
 ) (*HostInfo, token) {
-	hostPrimary, token := tr.GetHostForPartitionKey(pkey)
+	hostPrimary, token, endToken := tr.GetHostForPartitionKey(pkey)
 	if token == nil {
 		if GoCQLDebug {
 			msg := "WARN: querySharded: couldn't compute token (topology unknown?)"
@@ -383,7 +383,7 @@ func (s *Session) findAvailableHostForPkey(
 	// The "main" host for the current token wasn't found in our local
 	// cached copy of the token ring; let's see if there are any
 	// replicas that we do know of.
-	replicas, _ := taPolicy.getReplicas(keyspace, token)
+	replicas, _ := taPolicy.getReplicas(keyspace, endToken)
 	if len(replicas) > 0 {
 		return replicas[0], token
 	}
@@ -891,25 +891,6 @@ func (h connErrorObserverHandler) HandleError(conn *Conn, err error, closed bool
 	}
 }
 
-func (s *Session) connect(host *HostInfo, errorHandler ConnErrorHandler) (*Conn, error) {
-	if s.connectObserver != nil {
-		obs := ObservedConnect{
-			Host:  host,
-			Start: time.Now(),
-		}
-		conn, err := s.dial(host, s.connCfg, errorHandler)
-		obs.End = time.Now()
-		obs.Err = err
-		s.connectObserver.ObserveConnect(obs)
-		return conn, err
-	}
-	errorHandler = connErrorObserverHandler{
-		observer:       s.connErrorObserver,
-		wrappedHandler: errorHandler,
-	}
-	return s.dial(host, s.connCfg, errorHandler)
-}
-
 type hostMetrics struct {
 	Attempts     int
 	TotalLatency int64
@@ -927,7 +908,6 @@ type Query struct {
 	cons                  Consistency
 	pageSize              int
 	routingKey            []byte
-	routingKeyBuffer      []byte
 	pageState             []byte
 	prefetch              float64
 	trace                 Tracer
@@ -1209,46 +1189,7 @@ func (q *Query) GetRoutingKey() ([]byte, error) {
 		return nil, err
 	}
 
-	if routingKeyInfo == nil {
-		return nil, nil
-	}
-
-	if len(routingKeyInfo.indexes) == 1 {
-		// single column routing key
-		routingKey, err := Marshal(
-			routingKeyInfo.types[0],
-			q.values[routingKeyInfo.indexes[0]],
-		)
-		if err != nil {
-			return nil, err
-		}
-		return routingKey, nil
-	}
-
-	// We allocate that buffer only once, so that further re-bind/exec of the
-	// same query don't allocate more memory.
-	if q.routingKeyBuffer == nil {
-		q.routingKeyBuffer = make([]byte, 0, 256)
-	}
-
-	// composite routing key
-	buf := bytes.NewBuffer(q.routingKeyBuffer)
-	for i := range routingKeyInfo.indexes {
-		encoded, err := Marshal(
-			routingKeyInfo.types[i],
-			q.values[routingKeyInfo.indexes[i]],
-		)
-		if err != nil {
-			return nil, err
-		}
-		lenBuf := []byte{0x00, 0x00}
-		binary.BigEndian.PutUint16(lenBuf, uint16(len(encoded)))
-		buf.Write(lenBuf)
-		buf.Write(encoded)
-		buf.WriteByte(0x00)
-	}
-	routingKey := buf.Bytes()
-	return routingKey, nil
+	return createRoutingKey(routingKeyInfo, q.values)
 }
 
 func (q *Query) shouldPrepare() bool {
@@ -1738,10 +1679,13 @@ type Batch struct {
 	Type                  BatchType
 	Entries               []BatchEntry
 	Cons                  Consistency
+	routingKey            []byte
+	routingKeyBuffer      []byte
 	CustomPayload         map[string][]byte
 	rt                    DualRetryPolicy
 	spec                  SpeculativeExecutionPolicy
 	observer              BatchObserver
+	session               *Session
 	serialCons            SerialConsistency
 	defaultTimestamp      bool
 	defaultTimestampValue int64
@@ -1770,6 +1714,7 @@ func (s *Session) NewBatch(typ BatchType) *Batch {
 		rt:               s.cfg.retryPolicy(),
 		serialCons:       s.cfg.SerialConsistency,
 		observer:         s.batchObserver,
+		session:          s,
 		Cons:             s.cons,
 		defaultTimestamp: s.cfg.DefaultTimestamp,
 		keyspace:         s.cfg.Keyspace,
@@ -1996,8 +1941,63 @@ func (b *Batch) attempt(keyspace string, end, start time.Time, iter *Iter, host 
 }
 
 func (b *Batch) GetRoutingKey() ([]byte, error) {
-	// TODO: use the first statement in the batch as the routing key?
-	return nil, nil
+	if b.routingKey != nil {
+		return b.routingKey, nil
+	}
+
+	if len(b.Entries) == 0 {
+		return nil, nil
+	}
+
+	entry := b.Entries[0]
+	if entry.binding != nil {
+		// bindings do not have the values let's skip it like Query does.
+		return nil, nil
+	}
+	// try to determine the routing key
+	routingKeyInfo, err := b.session.routingKeyInfo(b.Context(), entry.Stmt)
+	if err != nil {
+		return nil, err
+	}
+
+	return createRoutingKey(routingKeyInfo, entry.Args)
+}
+
+func createRoutingKey(routingKeyInfo *routingKeyInfo, values []interface{}) ([]byte, error) {
+	if routingKeyInfo == nil {
+		return nil, nil
+	}
+
+	if len(routingKeyInfo.indexes) == 1 {
+		// single column routing key
+		routingKey, err := Marshal(
+			routingKeyInfo.types[0],
+			values[routingKeyInfo.indexes[0]],
+		)
+		if err != nil {
+			return nil, err
+		}
+		return routingKey, nil
+	}
+
+	// composite routing key
+	buf := bytes.NewBuffer(make([]byte, 0, 256))
+	for i := range routingKeyInfo.indexes {
+		encoded, err := Marshal(
+			routingKeyInfo.types[i],
+			values[routingKeyInfo.indexes[i]],
+		)
+		if err != nil {
+			return nil, err
+		}
+		lenBuf := []byte{0x00, 0x00}
+		binary.BigEndian.PutUint16(lenBuf, uint16(len(encoded)))
+		buf.Write(lenBuf)
+		buf.Write(encoded)
+		buf.WriteByte(0x00)
+	}
+	routingKey := buf.Bytes()
+	return routingKey, nil
 }
 
 type BatchType byte
