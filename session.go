@@ -547,7 +547,7 @@ func (s *Session) querySharded(
 				-1,
 			)
 			query = strings.Replace(query, "?,)", "?)", -1)
-			queries = append(queries, s.Query(query, keys[i-numberToAddToThisPage:endIndexForThisPage]...))
+			queries = append(queries, s.Query(query, keys[i-QuerySizeMaximum:endIndexForThisPage]...))
 			numberOfPage--
 		}
 	}
