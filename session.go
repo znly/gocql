@@ -538,7 +538,7 @@ func (s *Session) querySharded(
 			if len(keys)-i < 0 {
 				numberToAddToThisPage = len(keys) + QuerySizeMaximum - i
 			}
-			endIndexForThisPage := i - QuerySizeMaximum + numberToAddToThisPage
+			endIndexForThisPage := i + numberToAddToThisPage - QuerySizeMaximum
 
 			query := strings.Replace(
 				stmt,
