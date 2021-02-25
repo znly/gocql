@@ -531,14 +531,12 @@ func (s *Session) querySharded(
 			})
 		}
 
-		i := 0
-		for numberOfPage > 0 {
-			numberToAddToThisPage := QuerySizeMaximum
-			i += QuerySizeMaximum
-			if len(keys)-i < 0 {
-				numberToAddToThisPage = len(keys) + QuerySizeMaximum - i
+		keysLeftToAdd := keys
+		for len(keysLeftToAdd) > 0 {
+			numberToAddToThisPage := len(keysLeftToAdd)
+			if len(keysLeftToAdd) > QuerySizeMaximum {
+				numberToAddToThisPage = QuerySizeMaximum
 			}
-			endIndexForThisPage := i + numberToAddToThisPage - QuerySizeMaximum
 
 			query := strings.Replace(
 				stmt,
@@ -547,8 +545,8 @@ func (s *Session) querySharded(
 				-1,
 			)
 			query = strings.Replace(query, "?,)", "?)", -1)
-			queries = append(queries, s.Query(query, keys[i-QuerySizeMaximum:endIndexForThisPage]...))
-			numberOfPage--
+			queries = append(queries, s.Query(query, keysLeftToAdd[:numberToAddToThisPage]...))
+			keysLeftToAdd = keysLeftToAdd[numberToAddToThisPage:]
 		}
 	}
 	return queries
