@@ -512,6 +512,10 @@ func (s *Session) querySharded(
 			panic("unreachable: len(keys) == 0")
 		}
 
+		// TODO(cmc): cache these?
+
+		numberOfPage := len(keys)/QuerySizeMaximum + 1
+
 		if observer := s.shardedQueryObserver; observer != nil {
 			observer.ObserveShardedQuery(ObservedShardedQuery{
 				Keyspace:  keyspace,
@@ -520,22 +524,10 @@ func (s *Session) querySharded(
 				TotalKeys: len(pkeys),
 				NumKeys:   len(entry.Keys),
 				PerCore:   perCore,
+				NumPages:  numberOfPage,
 			})
 		}
 
-		// TODO(cmc): cache these?
-
-		numberOfPage := len(keys) / QuerySizeMaximum
-		if numberOfPage == 0 {
-			query := strings.Replace(
-				stmt,
-				_placeholder,
-				"("+strings.Repeat("?,", len(keys))+")",
-				-1,
-			)
-			query = strings.Replace(query, "?,)", "?)", -1)
-			return append(queries, s.Query(query, keys...))
-		}
 		i := 0
 		for numberOfPage > 0 {
 			i += QuerySizeMaximum
@@ -2198,6 +2190,8 @@ type ObservedShardedQuery struct {
 
 	// Whether this query was directed to a specific core or a specific host.
 	PerCore bool
+
+	NumPages int
 }
 
 type ShardedQueryObserver interface {
