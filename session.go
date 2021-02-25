@@ -513,26 +513,11 @@ func (s *Session) querySharded(
 		}
 
 		// TODO(cmc): cache these?
-
-		numberOfPage := (len(keys) / QuerySizeMaximum) + 1
-		if len(keys) > QuerySizeMaximum && len(keys)%QuerySizeMaximum == 0 {
-			numberOfPage--
-		}
-
-		if observer := s.shardedQueryObserver; observer != nil {
-			observer.ObserveShardedQuery(ObservedShardedQuery{
-				Keyspace:  keyspace,
-				HostInfo:  entry.HostInfo,
-				ShardID:   shardID,
-				TotalKeys: len(pkeys),
-				NumKeys:   len(entry.Keys),
-				PerCore:   perCore,
-				NumPages:  numberOfPage,
-			})
-		}
-
+		numberOfPage := 0
 		keysLeftToAdd := keys
+
 		for len(keysLeftToAdd) > 0 {
+			numberOfPage++
 			numberToAddToThisPage := len(keysLeftToAdd)
 			if len(keysLeftToAdd) > QuerySizeMaximum {
 				numberToAddToThisPage = QuerySizeMaximum
@@ -547,6 +532,17 @@ func (s *Session) querySharded(
 			query = strings.Replace(query, "?,)", "?)", -1)
 			queries = append(queries, s.Query(query, keysLeftToAdd[:numberToAddToThisPage]...))
 			keysLeftToAdd = keysLeftToAdd[numberToAddToThisPage:]
+		}
+		if observer := s.shardedQueryObserver; observer != nil {
+			observer.ObserveShardedQuery(ObservedShardedQuery{
+				Keyspace:  keyspace,
+				HostInfo:  entry.HostInfo,
+				ShardID:   shardID,
+				TotalKeys: len(pkeys),
+				NumKeys:   len(entry.Keys),
+				PerCore:   perCore,
+				NumPages:  numberOfPage,
+			})
 		}
 	}
 	return queries
