@@ -515,6 +515,9 @@ func (s *Session) querySharded(
 		// TODO(cmc): cache these?
 
 		numberOfPage := len(keys)/QuerySizeMaximum + 1
+		if len(keys)%QuerySizeMaximum > 0 {
+			numberOfPage++
+		}
 
 		if observer := s.shardedQueryObserver; observer != nil {
 			observer.ObserveShardedQuery(ObservedShardedQuery{
@@ -530,26 +533,22 @@ func (s *Session) querySharded(
 
 		i := 0
 		for numberOfPage > 0 {
+			numberToAddToThisPage := QuerySizeMaximum
 			i += QuerySizeMaximum
+			if len(keys)-i < 0 {
+				numberToAddToThisPage = len(keys) - i + QuerySizeMaximum
+			}
+			endIndexForThisPage := i - QuerySizeMaximum + numberToAddToThisPage
+
 			query := strings.Replace(
 				stmt,
 				_placeholder,
-				"("+strings.Repeat("?,", QuerySizeMaximum)+")",
+				"("+strings.Repeat("?,", numberToAddToThisPage)+")",
 				-1,
 			)
 			query = strings.Replace(query, "?,)", "?)", -1)
-			queries = append(queries, s.Query(query, keys[i-QuerySizeMaximum:i]...))
+			queries = append(queries, s.Query(query, keys[i-numberToAddToThisPage:endIndexForThisPage]...))
 			numberOfPage--
-		}
-		if len(keys)%QuerySizeMaximum > 0 {
-			query := strings.Replace(
-				stmt,
-				_placeholder,
-				"("+strings.Repeat("?,", len(keys)-i)+")",
-				-1,
-			)
-			query = strings.Replace(query, "?,)", "?)", -1)
-			queries = append(queries, s.Query(query, keys[i:]...))
 		}
 	}
 	return queries
