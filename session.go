@@ -536,7 +536,7 @@ func (s *Session) querySharded(
 			numberToAddToThisPage := QuerySizeMaximum
 			i += QuerySizeMaximum
 			if len(keys)-i < 0 {
-				numberToAddToThisPage = len(keys) - i + QuerySizeMaximum
+				numberToAddToThisPage = len(keys) + QuerySizeMaximum - i
 			}
 			endIndexForThisPage := i - QuerySizeMaximum + numberToAddToThisPage
 
