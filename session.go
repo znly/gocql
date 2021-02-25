@@ -2317,4 +2317,6 @@ func NewErrProtocol(format string, args ...interface{}) error {
 // BatchSizeMaximum is the maximum number of statements a batch operation can have.
 // This limit is set by cassandra and could change in the future.
 const BatchSizeMaximum = 65535
+
+// QuerySizeMaximum is the maximum amount of pkey that can be queried in a single query
 const QuerySizeMaximum = 100
