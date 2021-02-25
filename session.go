@@ -515,8 +515,8 @@ func (s *Session) querySharded(
 		// TODO(cmc): cache these?
 
 		numberOfPage := (len(keys) / QuerySizeMaximum) + 1
-		if len(keys) > QuerySizeMaximum && len(keys)%QuerySizeMaximum > 0 {
-			numberOfPage++
+		if len(keys) > QuerySizeMaximum && len(keys)%QuerySizeMaximum == 0 {
+			numberOfPage--
 		}
 
 		if observer := s.shardedQueryObserver; observer != nil {
