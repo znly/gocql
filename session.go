@@ -512,6 +512,27 @@ func (s *Session) querySharded(
 			panic("unreachable: len(keys) == 0")
 		}
 
+		// TODO(cmc): cache these?
+		numberOfPage := 0
+		keysLeftToAdd := keys
+
+		for len(keysLeftToAdd) > 0 {
+			numberOfPage++
+			numberToAddToThisPage := len(keysLeftToAdd)
+			if len(keysLeftToAdd) > QuerySizeMaximum {
+				numberToAddToThisPage = QuerySizeMaximum
+			}
+
+			query := strings.Replace(
+				stmt,
+				_placeholder,
+				"("+strings.Repeat("?,", numberToAddToThisPage)+")",
+				-1,
+			)
+			query = strings.Replace(query, "?,)", "?)", -1)
+			queries = append(queries, s.Query(query, keysLeftToAdd[:numberToAddToThisPage]...))
+			keysLeftToAdd = keysLeftToAdd[numberToAddToThisPage:]
+		}
 		if observer := s.shardedQueryObserver; observer != nil {
 			observer.ObserveShardedQuery(ObservedShardedQuery{
 				Keyspace:  keyspace,
@@ -520,21 +541,10 @@ func (s *Session) querySharded(
 				TotalKeys: len(pkeys),
 				NumKeys:   len(entry.Keys),
 				PerCore:   perCore,
+				NumPages:  numberOfPage,
 			})
 		}
-
-		// TODO(cmc): cache these?
-		query := strings.Replace(
-			stmt,
-			_placeholder,
-			"("+strings.Repeat("?,", len(keys))+")",
-			-1,
-		)
-		query = strings.Replace(query, "?,)", "?)", -1)
-
-		queries = append(queries, s.Query(query, keys...))
 	}
-
 	return queries
 }
 
@@ -2173,6 +2183,9 @@ type ObservedShardedQuery struct {
 
 	// Whether this query was directed to a specific core or a specific host.
 	PerCore bool
+
+	// The number of page of QuerySizeMaximum
+	NumPages int
 }
 
 type ShardedQueryObserver interface {
@@ -2301,3 +2314,6 @@ func NewErrProtocol(format string, args ...interface{}) error {
 // BatchSizeMaximum is the maximum number of statements a batch operation can have.
 // This limit is set by cassandra and could change in the future.
 const BatchSizeMaximum = 65535
+
+// QuerySizeMaximum is the maximum amount of pkey that can be queried in a single query
+const QuerySizeMaximum = 100
