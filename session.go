@@ -2184,6 +2184,7 @@ type ObservedShardedQuery struct {
 	// Whether this query was directed to a specific core or a specific host.
 	PerCore bool
 
+	// The number of page of QuerySizeMaximum
 	NumPages int
 }
 
